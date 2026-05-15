@@ -6,6 +6,30 @@
 
 当用户调用 `/ship-ready` 时，按以下步骤执行：
 
+### 阶段 0: 确定审核范围 (Diff Scope)
+1. 获取项目主分支名称：`git remote show origin | grep 'HEAD branch'` 或默认 `main`/`master`
+2. 获取当前分支名称：`git branch --show-current`
+3. 如果当前分支就是主分支，提示用户：`当前已在主分支上，无法确定审核范围。请先切换到功能分支再执行 ship-ready。` 并终止流程
+4. 拉取主分支最新代码：`git fetch origin <main-branch>`
+5. 生成 diff 范围：`git diff origin/<main-branch>...HEAD --stat`，展示变更文件和行数统计
+6. 向用户确认审核范围：
+   ```
+   === SHIP READY - 审核范围 ===
+   当前分支: <current-branch>
+   对比基准: origin/<main-branch>
+   变更文件: N 个
+   新增行: +X  删除行: -Y
+
+   变更文件列表:
+   - path/to/file1.ts (+50/-10)
+   - path/to/file2.ts (+20/-5)
+   ...
+
+   确认以上变更范围为审核对象？[YES/NO]
+   ```
+7. 用户确认后，将 `origin/<main-branch>...HEAD` 作为后续所有阶段的 diff 基准，传入各 review agent 的 prompt 中
+8. 如果用户拒绝，询问是否需要切换基准分支或终止流程
+
 ### 阶段 1: 基础验证 (Verify)
 1. 调用 Skill tool: `verify`
 2. 检查输出是否有 CRITICAL/HIGH 问题
@@ -24,11 +48,12 @@
 Agent tool:
   subagent_type: code-reviewer
   description: "Security and quality review"
-  prompt: "Review all uncommitted changes for:
+  prompt: "Review the diff between origin/<main-branch> and HEAD for:
     - Security vulnerabilities (CRITICAL)
     - Code quality issues (HIGH)
     - Best practices violations (MEDIUM)
 
+    Use `git diff origin/<main-branch>...HEAD` to identify changed files.
     Report findings with severity levels and file:line locations."
 ```
 
@@ -37,8 +62,9 @@ Agent tool:
 Agent tool:
   subagent_type: superpowers:code-reviewer
   description: "Plan-based code review"
-  prompt: "Review the implementation against the original plan and coding standards.
+  prompt: "Review the diff between origin/<main-branch> and HEAD against the original plan and coding standards.
 
+    Use `git diff origin/<main-branch>...HEAD` to identify changed files.
     Check for:
     - Requirements coverage
     - Architectural alignment
@@ -52,13 +78,14 @@ Agent tool:
 Agent tool:
   subagent_type: security-reviewer
   description: "Security vulnerability scan"
-  prompt: "Scan for security vulnerabilities:
+  prompt: "Scan the diff between origin/<main-branch> and HEAD for security vulnerabilities:
     - Hardcoded secrets
     - SQL injection
     - XSS vulnerabilities
     - Missing input validation
     - OWASP Top 10 issues
 
+    Use `git diff origin/<main-branch>...HEAD` to identify changed files.
     Report CRITICAL and HIGH issues with specific locations."
 ```
 
@@ -67,8 +94,9 @@ Agent tool:
 Agent tool:
   subagent_type: codex:review
   description: "Codex code review"
-  prompt: "Review the code changes using Codex's analysis capabilities.
+  prompt: "Review the diff between origin/<main-branch> and HEAD using Codex's analysis capabilities.
 
+    Use `git diff origin/<main-branch>...HEAD` to identify changed files.
     Focus on:
     - Code correctness and logic errors
     - Performance optimization opportunities
@@ -148,7 +176,7 @@ Ready to commit and push? [YES/NO]
 
 ## 参数说明
 
-- 无参数：执行完整的 8 个阶段
+- 无参数：执行完整的 9 个阶段（含阶段 0 确定审核范围）
 - `quick`：跳过阶段 2（代码优化）
 - `review-only`：从阶段 3 开始（跳过 verify 和 simplify）
 
@@ -156,7 +184,7 @@ Ready to commit and push? [YES/NO]
 
 1. **并行执行审查** - 三个 review agents 必须并行启动（单次消息多个 Agent tool 调用）
 2. **证据驱动** - 所有声明必须有命令输出支持
-3. **人工把关** - 阶段 7 必须等待用户明确批准
+3. **人工把关** - 阶段 8 必须等待用户明确批准
 4. **增量修复** - 修复一个问题后立即验证
 5. **不跳过阶段** - 除非用户指定参数，否则按顺序执行所有阶段
 
