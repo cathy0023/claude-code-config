@@ -41,7 +41,8 @@
 3. 如果用户传入 `quick` 参数，跳过此阶段
 
 ### 阶段 3: 多方代码审查 (Multi-Review)
-并行启动四个 review agents（使用 Agent tool 并行调用）：
+
+**步骤 3a：并行启动三个 review agents（使用 Agent tool 并行调用）：**
 
 **Agent 1: code-reviewer**
 ```
@@ -89,22 +90,14 @@ Agent tool:
     Report CRITICAL and HIGH issues with specific locations."
 ```
 
-**Agent 4: codex:review**
+**步骤 3b：等待上述三个 agents 完成后，串行调用 codex:review：**
+
+> 注意：`codex:review` 是 slash command（`disable-model-invocation: true`），不是 agent type，
+> 不能通过 Agent tool 的 subagent_type 调用，必须使用 Skill tool。
+
 ```
-Agent tool:
-  subagent_type: codex:review
-  description: "Codex code review"
-  prompt: "Review the diff between origin/<main-branch> and HEAD using Codex's analysis capabilities.
-
-    Use `git diff origin/<main-branch>...HEAD` to identify changed files.
-    Focus on:
-    - Code correctness and logic errors
-    - Performance optimization opportunities
-    - Best practices and patterns
-    - Potential bugs and edge cases
-    - Implementation improvements
-
-    Provide detailed review with specific recommendations."
+Skill tool: codex:review
+args: "--wait --base origin/<main-branch>"
 ```
 
 ### 阶段 4: 综合评判与修复
@@ -182,7 +175,7 @@ Ready to commit and push? [YES/NO]
 
 ## 注意事项
 
-1. **并行执行审查** - 三个 review agents 必须并行启动（单次消息多个 Agent tool 调用）
+1. **并行执行审查** - 三个 review agents 并行启动（Agent tool），codex:review 串行跟进（Skill tool）
 2. **证据驱动** - 所有声明必须有命令输出支持
 3. **人工把关** - 阶段 8 必须等待用户明确批准
 4. **增量修复** - 修复一个问题后立即验证
