@@ -14,9 +14,9 @@ argument-hint: <自然语言描述，包含需求ID>
 
 ## 分支命名规范
 
-格式：`<类型>/<简短英文描述>-<需求ID>`
+格式：`(feat|fix|refactor|docs|test|perf|ci|chore|hotfix|release|main)/<简短英文描述>-<需求ID>`
 
-合法示例：`feat/shared-screen-speaking-235`、`bugfix/fix-login-crash-233`
+合法示例：`feat/shared-screen-speaking-235`、`fix/login-crash-233`
 
 ## 执行逻辑
 
@@ -39,11 +39,15 @@ argument-hint: <自然语言描述，包含需求ID>
 | 关键词 | 类型 |
 |--------|------|
 | 新需求、新功能、新增、feature、feat | feat |
-| 修复、fix、bug、崩溃、异常、报错 | bugfix |
-| 紧急、hotfix、线上 | hotfix |
+| Bug 修复、fix、bug、崩溃、异常、报错 | fix |
+| 紧急、hotfix、线上故障 | hotfix |
 | 重构、refactor、优化结构 | refactor |
+| 性能、perf、优化性能、加速 | perf |
 | 文档、docs | docs |
-| 配置、依赖、chore、杂项 | chore |
+| 测试、test、补测试 | test |
+| CI/CD、流水线、构建脚本、ci | ci |
+| 配置、依赖、杂项、chore | chore |
+| 发布、release、版本切版 | release |
 
 无法判断时默认使用 `feat`。
 
