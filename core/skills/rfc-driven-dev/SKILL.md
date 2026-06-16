@@ -36,17 +36,31 @@ allowed-tools:
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `package_manager` | `npm` | 包管理器（npm / pnpm / yarn / bun） |
 | `review_score_threshold` | `8` | 评审通过分数阈值（1-10） |
 | `max_review_rounds` | `3` | 最大评审迭代轮数 |
 | `max_fix_rounds` | `2` | 单 Task 最大修复次数 |
 | `target_branch` | `develop` | MR 目标分支 |
 
+## 包管理器自动检测策略
+
+所有依赖安装和检查命令按 **pnpm 优先 + npm 兜底** 策略执行，不需要配置：
+
+1. **首次执行**（如 Stage 2 的 install）：尝试 pnpm，失败则回退到 npm
+   ```bash
+   pnpm install 2>/dev/null || npm install
+   ```
+   记录实际生效的包管理器（pnpm 或 npm），后续阶段复用。
+
+2. **后续调用**（check / test / build）：使用首次检测到的命令
+   - 首次是 pnpm → `pnpm run check` / `pnpm test` / `pnpm build`
+   - 首次是 npm → `npm run check` / `npm test` / `npm build`
+
+> 文档中所有 `{PM}` 占位符都按此策略解析。
+
 在 `CLAUDE.md` 中配置示例：
 
 ```markdown
 ## rfc-driven-dev config
-- package_manager: npm
 - review_score_threshold: 8
 - target_branch: main
 ```
@@ -172,13 +186,13 @@ path: "../{PROJECT}-{BRANCH_SHORTNAME}"
 
 `EnterWorktree` 会将**会话的工作目录**切换到 worktree（后续 Read/Edit/Write/Bash 均基于新目录），无需手动 `cd`。
 
-然后安装依赖：
+然后安装依赖（pnpm 优先，失败回退 npm）：
 
 ```bash
-{PACKAGE_MANAGER} install
+pnpm install 2>/dev/null || npm install
 ```
 
-`{PACKAGE_MANAGER}` 从配置的 `package_manager` 参数读取。
+记录实际生效的包管理器（pnpm 或 npm），后续 Stage 复用。记为 `{PM}`。
 
 ### 2.4 注意事项
 
@@ -187,7 +201,7 @@ path: "../{PROJECT}-{BRANCH_SHORTNAME}"
 
 ### Gate
 
-- ✅ 通过：worktree 创建成功，EnterWorktree 切换成功，`git branch` 显示正确分支，`{PACKAGE_MANAGER} install` 成功
+- ✅ 通过：worktree 创建成功，EnterWorktree 切换成功，`git branch` 显示正确分支，`{PM} install` 成功
 - ❌ 阻塞：worktree 已存在同名目录、分支名冲突、目标分支不存在、EnterWorktree 切换失败、install 失败
 
 ---
@@ -375,13 +389,13 @@ path: "../{PROJECT}-{BRANCH_SHORTNAME}"
 ### 8.2 监控执行
 
 每个 Task 完成后检查：
-- `{PACKAGE_MANAGER} check` 是否通过
+- `{PM} run check` 是否通过
 - Spec reviewer 是否确认符合 spec
 - Code quality reviewer 是否通过
 
 ### Gate
 
-- ✅ 通过：所有 Task 完成，`{PACKAGE_MANAGER} check` 全绿，tests 全绿
+- ✅ 通过：所有 Task 完成，`{PM} run check` 全绿，tests 全绿
 - ❌ 阻塞：某个 Task `{MAX_FIX_ROUNDS}` 次修复后仍不通过
 
 ---
@@ -424,19 +438,19 @@ path: "../{PROJECT}-{BRANCH_SHORTNAME}"
 **修复约束：**
 - 每组只修一个文件
 - 每文件只修它自己的 P0/P1
-- 修复后立即 `{PACKAGE_MANAGER} check` 验证
+- 修复后立即 `{PM} run check` 验证
 - 不引入新文件级别的修改
 
 ### 10.2 Gate 验证
 
 修复完成后：
-1. `{PACKAGE_MANAGER} check` 必须全绿
+1. `{PM} run check` 必须全绿
 2. 所有 P0 必须清零
 3. 所有 P1 必须有处理结论（fixed / known-issue / will-fix-in-followup）
 
 ### Gate
 
-- ✅ 通过：P0 清零 + `{PACKAGE_MANAGER} check` 全绿
+- ✅ 通过：P0 清零 + `{PM} run check` 全绿
 - ❌ 阻塞：P0 未清零或 check 不通过
 
 ---
@@ -474,7 +488,7 @@ git push
 ### 12.1 门禁验证
 
 ```bash
-{PACKAGE_MANAGER} check
+{PM} run check
 ```
 
 不通过 → blocked。
