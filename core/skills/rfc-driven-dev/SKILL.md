@@ -15,10 +15,9 @@ allowed-tools:
   - TaskCreate
   - TaskUpdate
   - AskUserQuestion
+  - EnterWorktree
+  - ExitWorktree
 ---
-
-> ⚠️ **禁止使用 EnterWorktree 工具**：本 skill 全程不调用 `EnterWorktree` / `ExitWorktree`。
-> 隔离工作目录统一通过 `git worktree add -b` + Bash `cd` 实现，确保分支名由 skill 控制、可追溯、可验证。
 
 # RFC-Driven-Dev: 日常开发全流程编排器
 
@@ -162,10 +161,9 @@ allowed-tools:
 | 发布分支 | `release` |
 | 主干 | `main` |
 
-### 2.2 创建 Worktree（强制执行 + 验证）
+### 2.2 创建 Worktree（skill 控制分支名 + 验证）
 
-> 🚨 **MANDATORY**：本步必须通过 Bash 工具实际执行 `git worktree add`，并粘贴命令输出作为证据。
-> **绝对禁止**跳过本步直接调用 `EnterWorktree` —— `EnterWorktree` 会自动生成 `worktree-xxx` 命名的分支，绕过 skill 的命名控制，导致分支名不可追溯。
+> 🚨 **MANDATORY**：分支创建由 skill 通过 `git worktree add -b` 控制，**绝对禁止**跳过本步直接调用 `EnterWorktree`（不传 `path`）—— 那样会让 `EnterWorktree` 自动生成 `worktree-xxx` 随机分支名，绕过 skill 的命名规范。
 
 #### 2.2.1 确认起始状态
 
@@ -202,36 +200,34 @@ git worktree list && git branch --list "{BRANCH_TYPE}/{BRANCH_SHORTNAME}"
 - `git branch --list` 能列出 `{BRANCH_TYPE}/{BRANCH_SHORTNAME}` 分支
 - 命令输出已粘贴到对话中作为证据
 
-若 worktree 已存在：先与用户确认是否复用（`cd` 进去 + `git pull --rebase`），不可擅自删除。
+若 worktree 已存在：先与用户确认是否复用，不可擅自删除。
 
-### 2.3 切换会话工作目录（cd）
+### 2.3 切换会话工作目录（EnterWorktree(path=...)）
 
-通过 Bash 工具执行 `cd`，并在**后续每一次 Bash 调用**中显式带上目标目录前缀（因为 Bash 工具不持久化 shell 状态）：
+Worktree 已通过 2.2 创建且分支名已受控，现在通过 `EnterWorktree` 绑定 session CWD 到该 worktree：
 
 ```bash
-cd ../{PROJECT}-{BRANCH_SHORTNAME} && pwd && git rev-parse --abbrev-ref HEAD
+EnterWorktree(path: "../{PROJECT}-{BRANCH_SHORTNAME}")
 ```
 
-**准出条件：**
-- `pwd` 输出 = `{ORIG_CWD}/../{PROJECT}-{BRANCH_SHORTNAME}` 的绝对路径
-- `git rev-parse --abbrev-ref HEAD` 输出 = `{BRANCH_TYPE}/{BRANCH_SHORTNAME}`
+> `EnterWorktree` 此时只做 CWD 绑定，不会创建新分支（已存在的 worktree 直接复用），skill 控制的分支名不会被覆盖。
 
-> ⚠️ **重要约束**：Bash 工具每次调用都是新进程，`cd` 不会跨调用持久化。
-> Stage 2 之后所有文件路径必须基于 worktree 根目录（相对路径或 `cd {worktree} && ...` 形式）。
-> Read/Edit/Write 工具调用时使用 worktree 的绝对路径。
+**准出条件（EnterWorktree 内部自动验证，直接生效）：**
+- session CWD 已切换到 worktree 目录
+- 后续所有 Read/Edit/Write/Bash 调用自动基于 worktree 根目录，无需手动 `cd`
 
 然后安装依赖（pnpm 优先，失败回退 npm）：
 
 ```bash
-cd ../{PROJECT}-{BRANCH_SHORTNAME} && (pnpm install 2>/dev/null || npm install)
+pnpm install 2>/dev/null || npm install
 ```
 
 记录实际生效的包管理器（pnpm 或 npm），后续 Stage 复用。记为 `{PM}`。
 
 ### 2.4 注意事项
 
-- **会话工作目录**通过显式 `cd` 或绝对路径维持，不依赖 `EnterWorktree`
-- 流程结束（Stage 12 DELIVER 完成后）：`cd {ORIG_CWD}` 回到原仓库目录
+- **会话工作目录**通过 `EnterWorktree(path=...)` 绑定，持久化且无需手动 `cd`
+- 流程结束（Stage 12 DELIVER 完成后）：通过 `ExitWorktree(action: "keep")` 返回原目录
 - 清理 worktree（可选，需用户确认）：`git worktree remove ../{PROJECT}-{BRANCH_SHORTNAME}`
 
 ### Gate
@@ -239,14 +235,14 @@ cd ../{PROJECT}-{BRANCH_SHORTNAME} && (pnpm install 2>/dev/null || npm install)
 - ✅ 通过：
   - `git worktree list` 显示新 worktree
   - `git branch --list` 显示 `{BRANCH_TYPE}/{BRANCH_SHORTNAME}`
-  - `cd` 后 `pwd` 和 `git rev-parse --abbrev-ref HEAD` 输出正确
+  - `EnterWorktree(path=...)` 成功绑定 session CWD
   - `{PM} install` 成功
   - 以上命令输出均已粘贴为证据
 - ❌ 阻塞：
   - worktree 已存在同名目录且用户拒绝复用
   - 分支名冲突
   - 目标分支 `{TARGET_BRANCH}` 不存在
-  - `git worktree add` 命令未实际执行（仅调用 `EnterWorktree` 视为本 Gate 失败）
+  - `git worktree add` 命令未实际执行（仅调用不传 `path` 的 `EnterWorktree` 视为本 Gate 失败）
   - install 失败
 
 ---
