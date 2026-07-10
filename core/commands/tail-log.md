@@ -1,6 +1,6 @@
 ---
-allowed-tools: Bash(sshpass *), Bash(ssh *), Bash(which *), Bash(ls *), Bash(export *)
-description: 查看 ai-sop-api 测试服务器日志 — 支持多项目、查看最新日志、搜索错误、实时跟踪、自定义命令
+allowed-tools: Bash(sshpass *), Bash(ssh *), Bash(which *), Bash(ls *), Bash(export *), Bash(uname *), Bash(case *)
+description: 查看 ai-sop-api 测试服务器日志 — 跨平台 (Win/Mac)，多项目、最新日志、搜索错误、实时跟踪
 argument-hint: [list | search | <项目或日志名>] [latest | errors | follow | <grep-pattern>] [--lines N]
 ---
 
@@ -99,48 +99,62 @@ argument-hint: [list | search | <项目或日志名>] [latest | errors | follow 
 /tail-log ai-sop-api/error                   → ai-sop-api 的 error.log
 ```
 
-## SSH 执行工具链（关键！）
+## SSH 执行工具链（跨平台）
 
-> **重要**：sshpass-win32 必须配合 **Windows 的 ssh.exe**，不能用 git bash 的 `/usr/bin/ssh`，否则密码传递失败。
+### 连接信息
 
-### 工具路径定位
-
-执行前先定位工具：
-
-```bash
-# 定位 sshpass（winget 安装，长路径）
-SSHPASS=$(which sshpass 2>/dev/null || ls "/c/Users/chenyan/AppData/Local/Microsoft/WinGet/Packages/xhcoding.sshpass-win32_Microsoft.Winget.Source_8wekyb3d8bbwe/sshpass.exe" 2>/dev/null)
-# 定位 Windows OpenSSH
-SSH="/c/Windows/System32/OpenSSH/ssh.exe"
+```
+主机: 39.103.221.243
+用户: chenyan
+密码: 2CZ1vDNfMQHQMX2n (仅 Windows 需要)
+端口: 22
 ```
 
-### SSH 命令模板
+### 跨平台 SSH 适配层
 
-所有远程命令基于此模板：
+**每个模式的第一步都是建立 SSH 连接**，不同系统走不同路径：
 
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "<command>"
+# 检测当前系统
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    # === Windows (Git Bash / MSYS2) ===
+    # 必须用 Windows 原生 ssh.exe，git bash 自带的 ssh 与 sshpass 不兼容
+    SSH_EXE="/c/Windows/System32/OpenSSH/ssh.exe"
+    SSHPASS_EXE=$(which sshpass 2>/dev/null || ls "/c/Users/chenyan/AppData/Local/Microsoft/WinGet/Packages/xhcoding.sshpass-win32_Microsoft.Winget.Source_8wekyb3d8bbwe/sshpass.exe" 2>/dev/null)
+    test -x "$SSH_EXE" || { echo "ERROR: Windows ssh.exe not found at $SSH_EXE"; exit 1; }
+    test -x "$SSHPASS_EXE" || { echo "ERROR: sshpass not found. Install: winget install xhcoding.sshpass-win32"; exit 1; }
+    export SSHPASS='2CZ1vDNfMQHQMX2n'
+    DO_SSH() { "$SSHPASS_EXE" -e "$SSH_EXE" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "$@"; }
+    ;;
+  Darwin|Linux)
+    # === Mac / Linux ===
+    # 直接用原生 ssh，优先 SSH key，fallback 到密码
+    SSH_EXE=$(which ssh)
+    DO_SSH() { "$SSH_EXE" -o StrictHostKeyChecking=no -o PreferredAuthentications=publickey,password chenyan@39.103.221.243 "$@"; }
+    ;;
+  *)
+    echo "ERROR: unsupported OS"; exit 1;
+    ;;
+esac
 ```
 
-> 使用 `-e`（环境变量传密码）而非 `-p`，避免命令行特殊字符问题。
+> **核心思想**：以上适配代码在每次执行时运行一次。之后所有模式的远程命令都用 `DO_SSH "远程命令"` 调用，无需关心平台差异。
+>
+> **Mac 用户注意**：第一次使用前建议配置 SSH key 免密登录：
+> ```bash
+> ssh-keygen -t ed25519 && ssh-copy-id chenyan@39.103.221.243
+> ```
+> 如果没配置 key，ssh 会提示输入密码（`2CZ1vDNfMQHQMX2n`），每次查询需要手动输一次。
 
 ## 执行逻辑
 
-### 前置检查：确认工具可用
-
-```bash
-SSH="/c/Windows/System32/OpenSSH/ssh.exe"
-SSHPASS=$(which sshpass 2>/dev/null || ls "/c/Users/chenyan/AppData/Local/Microsoft/WinGet/Packages/xhcoding.sshpass-win32_Microsoft.Winget.Source_8wekyb3d8bbwe/sshpass.exe" 2>/dev/null)
-test -x "$SSH" || { echo "Windows ssh.exe not found"; exit 1; }
-test -x "$SSHPASS" || { echo "sshpass not found (winget install xhcoding.sshpass-win32)"; exit 1; }
-```
+> **每个模式的第一步**：运行上面「跨平台 SSH 适配层」的 `case` 代码块，建立 `DO_SSH` 函数。之后按下面各模式执行。
 
 ### 1. list 模式 — 列出所有日志
 
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "find /data/logs/ /log/megaview/ -maxdepth 2 -name '*.log' -type f 2>/dev/null | sort"
+DO_SSH "find /data/logs/ /log/megaview/ -maxdepth 2 -name '*.log' -type f 2>/dev/null | sort"
 ```
 
 ### 2. 日志路径解析
@@ -183,48 +197,42 @@ export SSHPASS='2CZ1vDNfMQHQMX2n'
 > 用 `grep -r` 遍历 `/data/logs/` + `/log/megaview/` 下全部 `.log` 文件，每条结果带文件名前缀，方便定位来源。
 
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "grep -rin '${KEYWORD}' /data/logs/ /log/megaview/ --include='*.log' 2>/dev/null | tail -${LINES:-50}"
+DO_SSH "grep -rin '${KEYWORD}' /data/logs/ /log/megaview/ --include='*.log' 2>/dev/null | tail -${LINES:-50}"
 ```
 
-> **注意**：部分日志文件较大（mgvcore.log 844MB、mgvproc.log 771MB、app_business_feedback_all.log 518MB），跨全部搜索可能较慢（10-30 秒）。如果用户明确知道排除某个大文件可以加速，可加 `--exclude=mgvcore.log` 等。
+> **注意**：部分日志文件较大（mgvcore.log 844MB、mgvproc.log 771MB、app_business_feedback_all.log 518MB），跨全部搜索可能较慢（10-30 秒）。
 
 ### 4. 按操作模式执行（LOG_FILE 为解析后的路径）
 
 **latest（默认）**：
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "tail -${LINES:-200} ${LOG_FILE}"
+DO_SSH "tail -${LINES:-200} ${LOG_FILE}"
 ```
 
 **errors**：
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "grep -i 'error\|exception' ${LOG_FILE} | tail -${LINES:-50}"
+DO_SSH "grep -i 'error\|exception' ${LOG_FILE} | tail -${LINES:-50}"
 ```
 
 **follow**：
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "tail -f ${LOG_FILE}"
+DO_SSH "tail -f ${LOG_FILE}"
 ```
 
 **自定义关键词搜索 — 跨所有日志（默认）**（$KEYWORD 为用户搜索词，未指定别名时）：
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "grep -rin '${KEYWORD}' /data/logs/ /log/megaview/ --include='*.log' 2>/dev/null | tail -${LINES:-50}"
+DO_SSH "grep -rin '${KEYWORD}' /data/logs/ /log/megaview/ --include='*.log' 2>/dev/null | tail -${LINES:-50}"
 ```
 
 **自定义关键词搜索 — 指定项目内**（$KEYWORD 为搜索词，指定了 LOG_FILE 时）：
 ```bash
-export SSHPASS='2CZ1vDNfMQHQMX2n'
-"$SSHPASS" -e "$SSH" -o StrictHostKeyChecking=no chenyan@39.103.221.243 "grep -i '${KEYWORD}' ${LOG_FILE} | tail -${LINES:-50}"
+DO_SSH "grep -i '${KEYWORD}' ${LOG_FILE} | tail -${LINES:-50}"
 ```
 
 ## 注意事项
 
 1. **follow 模式**会持续运行，需要用户手动 Ctrl+C 终止
-2. SSH 密码硬编码在命令中（测试服务器，非生产环境）
-3. 如果日志文件为空或不存在，提示用户检查服务状态或用 `list` 模式确认路径
-4. 搜索关键词区分大小写已关闭（使用 `-i` 参数）
-5. **必须用 Windows ssh.exe**（`/c/Windows/System32/OpenSSH/ssh.exe`），git bash 的 ssh 与 sshpass-win32 不兼容
+2. 如果日志文件为空或不存在，提示用户检查服务状态或用 `list` 模式确认路径
+3. 搜索关键词区分大小写已关闭（使用 `-i` 参数）
+4. **Windows**：依赖 sshpass-win32（`winget install xhcoding.sshpass-win32`），密码自动注入
+5. **Mac/Linux**：直接用原生 ssh，建议配置 SSH key 免密登录：`ssh-copy-id chenyan@39.103.221.243`（密码 `2CZ1vDNfMQHQMX2n`）
