@@ -212,8 +212,30 @@ EnterWorktree(path: "../{PROJECT}-{BRANCH_SHORTNAME}")
 
 > `EnterWorktree` 此时只做 CWD 绑定，不会创建新分支（已存在的 worktree 直接复用），skill 控制的分支名不会被覆盖。
 
-**准出条件（EnterWorktree 内部自动验证，直接生效）：**
-- session CWD 已切换到 worktree 目录
+**准出条件（必须执行硬验证，不可跳过）：**
+
+EnterWorktree 完成后，立即跑以下命令验证 CWD 确实切到了 worktree：
+
+```bash
+git rev-parse --show-toplevel && git rev-parse --abbrev-ref HEAD && pwd
+```
+
+**硬验证条件（全部满足才通过，否则 blocked）：**
+- `git rev-parse --show-toplevel` 输出**必须**是 `../{PROJECT}-{BRANCH_SHORTNAME}` 的绝对路径，而**不是**原仓库 `{ORIG_CWD}`
+- `git rev-parse --abbrev-ref HEAD` 输出**必须**是 `{BRANCH_TYPE}/{BRANCH_SHORTNAME}`
+- `pwd` 输出**必须**在 worktree 目录下
+
+若任何一项不符 → 产出 `{"event":"blocked","stage":"WORKTREE","reason":"EnterWorktree 未将 CWD 切换到 worktree","expected":"../{PROJECT}-{BRANCH_SHORTNAME}"}` 并停止。
+
+**醒目提示（必须输出到对话中）：**
+
+```
+✅ 已进入隔离工作树
+   路径: ../{PROJECT}-{BRANCH_SHORTNAME}
+   分支: {BRANCH_TYPE}/{BRANCH_SHORTNAME}
+   接下来所有开发都在此 worktree 进行，主仓库 {ORIG_CWD} 不受影响
+```
+
 - 后续所有 Read/Edit/Write/Bash 调用自动基于 worktree 根目录，无需手动 `cd`
 
 然后安装依赖（pnpm 优先，失败回退 npm）：
@@ -224,10 +246,48 @@ pnpm install 2>/dev/null || npm install
 
 记录实际生效的包管理器（pnpm 或 npm），后续 Stage 复用。记为 `{PM}`。
 
-### 2.4 注意事项
+### 2.4 写入被动路标（跨 session 找回 worktree）
+
+> 设计哲学：路标是**拉模式**——只有用户主动问"我那个 RFC 改到哪了"才读，不主动打扰日常开发。
+
+**2.4.1 在主仓库根目录写路标文件**
+
+路标文件写到 `{ORIG_CWD}/.rfc-active-worktree`（注意：是**主仓库根目录**，不是 worktree 内）：
+
+```bash
+cat > {ORIG_CWD}/.rfc-active-worktree <<'EOF'
+{
+  "rfc_id": "{RFC_ID}",
+  "worktree_path": "../{PROJECT}-{BRANCH_SHORTNAME}",
+  "branch": "{BRANCH_TYPE}/{BRANCH_SHORTNAME}",
+  "target_branch": "{TARGET_BRANCH}",
+  "created_at": "<ISO8601 时间>"
+}
+EOF
+```
+
+**2.4.2 追加 .gitignore（确保不污染 git status）**
+
+```bash
+# 若 .gitignore 中尚未包含则追加
+grep -qx '.rfc-active-worktree' {ORIG_CWD}/.gitignore 2>/dev/null || echo '.rfc-active-worktree' >> {ORIG_CWD}/.gitignore
+```
+
+**2.4.3 准出验证**
+
+- `.rfc-active-worktree` 文件存在于主仓库根目录
+- `.gitignore` 包含 `.rfc-active-worktree`
+- `git status`（在主仓库）不显示该文件（被 ignore）
+
+### 2.5 注意事项
 
 - **会话工作目录**通过 `EnterWorktree(path=...)` 绑定，持久化且无需手动 `cd`
-- 流程结束（Stage 12 DELIVER 完成后）：通过 `ExitWorktree(action: "keep")` 返回原目录
+- **流程结束（Stage 12 DELIVER 完成后）默认保持在 worktree 中，不自动 ExitWorktree** —— 这样开发者能直接看到开发成果，避免"回主仓库找不到代码"的困扰
+- 如需返回主仓库，由开发者**主动**调用 `ExitWorktree(action: "keep")`，skill 不再越俎代庖
+- **路标文件 `.rfc-active-worktree`** 写在主仓库根目录（已自动 ignore），用于跨 session 找回 worktree。日常在主仓库改代码**完全无感**：
+  - 不弹窗、不强制 cd、不打断任何操作
+  - 只有用户说"找回 RFC worktree"/"继续 RFC"/"我那个 RFC 改到哪了"时，才读该文件并告知 worktree 路径
+  - 用户在主仓库的 `git status` 看不到它（已 ignore）
 - 清理 worktree（可选，需用户确认）：`git worktree remove ../{PROJECT}-{BRANCH_SHORTNAME}`
 
 ### Gate
@@ -236,6 +296,9 @@ pnpm install 2>/dev/null || npm install
   - `git worktree list` 显示新 worktree
   - `git branch --list` 显示 `{BRANCH_TYPE}/{BRANCH_SHORTNAME}`
   - `EnterWorktree(path=...)` 成功绑定 session CWD
+  - 硬验证 `git rev-parse --show-toplevel` 输出为 worktree 路径
+  - 路标文件 `{ORIG_CWD}/.rfc-active-worktree` 已写入
+  - `.gitignore` 已包含 `.rfc-active-worktree`
   - `{PM} install` 成功
   - 以上命令输出均已粘贴为证据
 - ❌ 阻塞：
@@ -566,6 +629,38 @@ git push -u origin HEAD
 
 - ✅ 通过：push 成功 + MR 已创建
 - ❌ 阻塞：push 失败、MR 创建失败、或 check 不通过
+
+### 12.5 交付收尾（保持在 worktree，不自动退出）
+
+> 🚨 **禁止**：本 Stage 不再调用 `ExitWorktree`。流程结束后 session **默认保持在 worktree 中**，让开发者直接看到开发成果。
+
+**12.5.1 清理被动路标**
+
+RFC 已全流程完成，删除主仓库的路标文件（不再需要找回）：
+
+```bash
+rm -f {ORIG_CWD}/.rfc-active-worktree
+```
+
+> 注意：不删除 `.gitignore` 中的 `.rfc-active-worktree` 条目——保留它，下次新 RFC 流程就不用重复追加。
+
+**12.5.2 输出交付摘要**
+
+完成 MR 创建后，**必须**输出以下交付摘要（让开发者明确知道代码在哪、下一步看什么）：
+
+```
+🎉 RFC 全流程完成
+
+   📂 代码位置:  ../{PROJECT}-{BRANCH_SHORTNAME}   ← 你现在就在这里
+   🌿 当前分支:  {BRANCH_TYPE}/{BRANCH_SHORTNAME}
+   📋 MR 目标:  合入 {TARGET_BRANCH}
+   📦 包管理器:  {PM}
+
+   下一步：
+   - 在此 worktree 中继续审查/调试代码
+   - 如需返回主仓库：手动调用 ExitWorktree(action: "keep")，worktree 会保留
+   - 如需清理 worktree（MR 合并后）：git worktree remove ../{PROJECT}-{BRANCH_SHORTNAME}
+```
 
 ---
 
