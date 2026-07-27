@@ -9,7 +9,7 @@
 
 | 类型 | 数量 | 范围 |
 |------|------|------|
-| **Commands（/指令）** | 8 个 | 开发流程 / Git 操作 / 日志观测 / 知识传承 |
+| **Commands（/指令）** | 9 个 | 开发流程 / 上线发布 / Git 操作 / 日志观测 / 知识传承 |
 | **Skills（技能）** | 8 个 | 开发编排 / GitLab 集成 / RFC 流水线 / 复盘 |
 
 ---
@@ -86,7 +86,22 @@
 
 ---
 
-## 二、GitLab 集成类（GitLab Integration）
+## 二、上线发布类（Release & Deploy）
+
+### Commands
+
+#### `/release-steps [需求简述]`
+**能力**：需求开发完成、代码合并 main 后调用，生成双版本上线清单。
+- **自用版** `*-self.md`：每阶段「做什么 + 顺序 + 验证 + 坑」四要素，单行优先
+- **运维版** `*-ops.md`：纯命令 + 验证 + 失败处理，**零废话**
+- **SQL 内联**：检测到的 `.sql` 文件用 `cat` 读出内容**内联到文档**，不引用文件路径（避免运维找不到）
+- 不填需求简述时，从 git context（最近 commit + diff）自动推断
+
+**输出位置**：`docs/releases/YYYY-MM-DD-<需求>-self.md` + `docs/releases/YYYY-MM-DD-<需求>-ops.md`
+
+---
+
+## 三、GitLab 集成类（GitLab Integration）
 
 ### Commands
 
@@ -121,7 +136,7 @@
 
 ---
 
-## 三、RFC 文档流水线（RFC Pipeline）
+## 四、RFC 文档流水线（RFC Pipeline）
 
 ### 5 件套关系图
 
@@ -177,7 +192,7 @@ rfc-driven-dev    全流程编排：从原始文档到交付的 11 阶段流水�
 
 ---
 
-## 四、日志观测类（Logging & Observability）
+## 五、日志观测类（Logging & Observability）
 
 ### Commands
 
@@ -211,7 +226,7 @@ rfc-driven-dev    全流程编排：从原始文档到交付的 11 阶段流水�
 
 ---
 
-## 五、知识沉淀与传承（Knowledge & Retrospective）
+## 六、知识沉淀与传承（Knowledge & Retrospective）
 
 ### Commands
 
@@ -248,6 +263,7 @@ rfc-driven-dev    全流程编排：从原始文档到交付的 11 阶段流水�
 | 修 bug（轻量） | `dev-lite` skill |
 | 大需求需要 RFC | `rfc-brainstorm` → `rfc-author` → `mgv-rfc-approve` → `rfc-driven-dev` |
 | 当前分支落后主分支 | `/update-from-main` |
+| 合并 main 后准备上线 | `/release-steps` |
 | 排查测试环境问题 | `/test-log` |
 | 排查生产问题 | `/sls-log` |
 | 处理 MR 评审 P0 | `/review-fix` |
