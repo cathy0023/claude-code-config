@@ -4,7 +4,7 @@ description: 查看 ai-sop-api 测试服务器日志 — 跨平台 (Win/Mac)，�
 argument-hint: [list | search | <项目或日志名>] [latest | errors | follow | <grep-pattern>] [--lines N]
 ---
 
-# /tail-log — 测试服务器日志查看
+# /test-log — 测试服务器日志查看
 
 > **用途**：查看测试服务器 `/data/logs/` 和 `/log/megaview/` 下所有项目的日志。
 
@@ -84,19 +84,19 @@ argument-hint: [list | search | <项目或日志名>] [latest | errors | follow 
 ### 使用示例
 
 ```
-/tail-log                                    → 默认 ai-sop-api 最新 200 行
-/tail-log list                               → 列出所有可用日志
-/tail-log "timeout"                          → 跨所有日志搜 timeout（带文件名前缀）
-/tail-log "ConnectionRefused" --lines 20     → 跨所有日志搜，取 20 行
-/tail-log "userId=12345"                     → 跨所有日志搜特定 userId
+/test-log                                    → 默认 ai-sop-api 最新 200 行
+/test-log list                               → 列出所有可用日志
+/test-log "timeout"                          → 跨所有日志搜 timeout（带文件名前缀）
+/test-log "ConnectionRefused" --lines 20     → 跨所有日志搜，取 20 行
+/test-log "userId=12345"                     → 跨所有日志搜特定 userId
 
-/tail-log im-agents-api                      → im-agents-api.log 最新 200 行
-/tail-log im-agents-api latest --lines 500   → im-agents-api.log 最新 500 行
-/tail-log im-agents-api errors               → im-agents-api.log 错误
-/tail-log im-agents-api follow               → im-agents-api.log 实时跟踪
-/tail-log im-agents-api "timeout" --lines 30 → im-agents-api.log 搜 timeout 取 30 行
-/tail-log app_business_feedback_all          → 业务反馈日志最新 200 行
-/tail-log ai-sop-api/error                   → ai-sop-api 的 error.log
+/test-log im-agents-api                      → im-agents-api.log 最新 200 行
+/test-log im-agents-api latest --lines 500   → im-agents-api.log 最新 500 行
+/test-log im-agents-api errors               → im-agents-api.log 错误
+/test-log im-agents-api follow               → im-agents-api.log 实时跟踪
+/test-log im-agents-api "timeout" --lines 30 → im-agents-api.log 搜 timeout 取 30 行
+/test-log app_business_feedback_all          → 业务反馈日志最新 200 行
+/test-log ai-sop-api/error                   → ai-sop-api 的 error.log
 ```
 
 ## SSH 执行工具链（跨平台）

@@ -627,7 +627,7 @@ R3: <score> — <核心理由>
 - [ ] 核心流程跑通：<具体流程描述>
 - [ ] 原 bug 未复现（bugfix）：<复现路径 + 预期结果>
 - [ ] 监控指标正常：<关键指标 如 error rate / latency>
-- [ ] 日志无异常：可调用 /tail-log（测试环境）或 /sls-log（生产）核对
+- [ ] 日志无异常：可调用 /test-log（测试环境）或 /sls-log（生产）核对
 
 【回滚方案】
 - 回滚命令：`git revert <commit-hash>` + 重新部署
@@ -673,7 +673,7 @@ options:
    上线步骤清单已生成在上方，请保存或归档。
    稍后可随时执行：
    - 合 test：/sync-push test
-   - 查测试环境日志：/tail-log
+   - 查测试环境日志：/test-log
    - 查生产日志：/sls-log
    - 合 main：手动创建 MR 或 /glab-mr（若可用）
 ```

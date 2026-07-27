@@ -7,7 +7,7 @@
 ## 范围
 
 - **生产环境 (main profile)**：project=`megaview-server`, logstore=`server`, region=`cn-zhangjiakou`
-- **暂不覆盖测试环境**：测试已有 `/tail-log`（SSH 到 39.103.221.243），不重复建设
+- **暂不覆盖测试环境**：测试已有 `/test-log`（SSH 到 39.103.221.243），不重复建设
 
 ## 指令接口
 
