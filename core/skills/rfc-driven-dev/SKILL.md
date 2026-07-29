@@ -1,8 +1,8 @@
 ---
 name: rfc-driven-dev
 description: >
-  RFC 驱动开发全流程编排器。从原始文档出发，经过调研→RFC生成→评审→审批→Plan→实现→Review→修复→归档→交付，
-  11 阶段完整流水线。适用于处理 docs/rfcs/inbox 或 docs/rfcs/draft 中的 RFC 文档。
+  RFC 驱动开发全流程编排器。从原始文档出发，经过调研→RFC生成→评审→审批→Plan→实现→Review→修复→测环境验证→归档→交付，
+  13 阶段完整流水线。适用于处理 docs/rfcs/inbox 或 docs/rfcs/draft 中的 RFC 文档。
   触发词：rfc-driven-dev、RFC 驱动开发、处理 RFC、开始 RFC 流程、RFC 全流程。
 allowed-tools:
   - Read
@@ -21,7 +21,7 @@ allowed-tools:
 
 # RFC-Driven-Dev: 日常开发全流程编排器
 
-将原始需求文档 → 调研 → 隔离环境 → RFC → 审批 → Plan → 实现 → Review → 修复 → 归档 → 交付，一站式串联。
+将原始需求文档 → 调研 → 隔离环境 → RFC → 审批 → Plan → 实现 → Review → 修复 → 测环境验证 → 归档 → 交付，一站式串联。
 
 ## 核心哲学
 
@@ -171,7 +171,7 @@ allowed-tools:
 pwd && git rev-parse --abbrev-ref HEAD && git rev-parse --show-toplevel
 ```
 
-记录当前目录 `{ORIG_CWD}`（后续 Stage 12 完成后需要 `cd` 回来）。
+记录当前目录 `{ORIG_CWD}`（后续 Stage 13 完成后需要 `cd` 回来）。
 
 #### 2.2.2 执行 git worktree add
 
@@ -282,7 +282,7 @@ grep -qx '.rfc-active-worktree' {ORIG_CWD}/.gitignore 2>/dev/null || echo '.rfc-
 ### 2.5 注意事项
 
 - **会话工作目录**通过 `EnterWorktree(path=...)` 绑定，持久化且无需手动 `cd`
-- **流程结束（Stage 12 DELIVER 完成后）默认保持在 worktree 中，不自动 ExitWorktree** —— 这样开发者能直接看到开发成果，避免"回主仓库找不到代码"的困扰
+- **流程结束（Stage 13 DELIVER 完成后）默认保持在 worktree 中，不自动 ExitWorktree** —— 这样开发者能直接看到开发成果，避免"回主仓库找不到代码"的困扰
 - 如需返回主仓库，由开发者**主动**调用 `ExitWorktree(action: "keep")`，skill 不再越俎代庖
 - **路标文件 `.rfc-active-worktree`** 写在主仓库根目录（已自动 ignore），用于跨 session 找回 worktree。日常在主仓库改代码**完全无感**：
   - 不弹窗、不强制 cd、不打断任何操作
@@ -443,7 +443,7 @@ grep -qx '.rfc-active-worktree' {ORIG_CWD}/.gitignore 2>/dev/null || echo '.rfc-
 | 情形 | 是否进入 Stage 7 |
 |------|-----------------|
 | 验收标准完整且可执行，实现任务具象 | ✅ 进入 Stage 7 |
-| 验收标准为纯文档/流程变更（无代码） | ❌ 跳到 Stage 11: ARCHIVE（直接归档） |
+| 验收标准为纯文档/流程变更（无代码） | ❌ 跳到 Stage 12: ARCHIVE（直接归档） |
 | 验收标准为主观描述（如"代码更清晰"）无法量化 | ❌ blocked：验收标准不可执行 |
 | RFC 标记状态为 Superseded/Deferred | ❌ blocked：RFC 不适用 |
 
@@ -559,9 +559,56 @@ grep -qx '.rfc-active-worktree' {ORIG_CWD}/.gitignore 2>/dev/null || echo '.rfc-
 
 ---
 
-## Stage 11: ARCHIVE（RFC 归档）
+## Stage 11: TEST DEPLOY（测环境验证）
 
-### 11.1 归档 RFC
+> 代码已全部修完、`{PM} run check` 全绿。在归档/交付前，先把当前分支合到 `test` 分支推送到测环境，让你做一次人工冒烟验证——避免带着未验证的代码直接建 MR 交付。
+>
+> ⚠️ **worktree 注意**：rfc-driven-dev 全程在 worktree（`../{PROJECT}-{BRANCH_SHORTNAME}`）内运行。`/sync-push test` 会执行 `git switch test`，若 `test` 分支正被主仓库或其他 worktree 占用，会报 `already checked out` 失败。通常主仓库停在 `develop`/`main`、`test` 空闲，可正常执行；若报占用，先在主仓库把 `test` 切走再重试。
+
+### 11.1 询问是否 sync-push 到测环境
+
+使用 `AskUserQuestion` 询问（默认执行）：
+
+```
+question: "是否现在 sync-push 到测环境做人工验证？"
+header: "测环境验证"
+options:
+  - label: "是，sync-push test（默认）"
+    description: "调 /sync-push test：提交+推送当前分支 → 合并到 test → 推送 test → 切回，部署后你做人工冒烟验证"
+  - label: "跳过"
+    description: "本次不去测环境，直接进入 Stage 12 ARCHIVE 归档 + Stage 13 DELIVER 交付"
+  - label: "换分支（如 staging）"
+    description: "sync-push 到指定分支而非 test"
+```
+
+### 11.2 根据选择执行
+
+**选项 1（sync-push test）：** 使用 Skill 工具调用 `/sync-push test`：
+
+```
+Skill(skill: "/sync-push test")
+```
+
+该指令会：①提交并推送当前分支 ②切到 `test` 并 pull 最新 ③合并当前分支（冲突则中止并提示）④推送 `test` ⑤切回当前分支。
+
+**选项 2（跳过）：** 输出提示后直接进入 Stage 12 ARCHIVE：
+
+```
+⏭️ 已跳过测环境验证，进入归档/交付。如需补测，可随时手动执行 /sync-push test。
+```
+
+**选项 3（换分支）：** 使用 Skill 工具调用 `/sync-push <目标分支>`（如 `/sync-push staging`）。
+
+### Gate
+
+- ✅ 通过：用户已选择并完成对应动作（选「跳过」也算通过，进入 Stage 12 ARCHIVE）
+- ❌ 阻塞：`/sync-push` 执行失败（如 `test` 分支被占用报 `already checked out`、合并冲突无法自动解决、推送失败）
+
+---
+
+## Stage 12: ARCHIVE（RFC 归档）
+
+### 12.1 归档 RFC
 
 将审批通过的 RFC 从 `approved/` 移入 `completed/`：
 
@@ -587,9 +634,9 @@ git push
 
 ---
 
-## Stage 12: DELIVER（交付）
+## Stage 13: DELIVER（交付）
 
-### 12.1 门禁验证
+### 13.1 门禁验证
 
 ```bash
 {PM} run check
@@ -597,7 +644,7 @@ git push
 
 不通过 → blocked。
 
-### 12.2 WIP Squash
+### 13.2 WIP Squash
 
 保持干净线性历史：
 
@@ -611,7 +658,7 @@ git log --oneline origin/{TARGET_BRANCH}..HEAD
 
 原则：每个 commit 应该是 Bisectable 的独立单元。
 
-### 12.3 Commit & Push
+### 13.3 Commit & Push
 
 使用 Skill 工具调用 `commit` skill（如存在），或手动执行：
 
@@ -621,7 +668,7 @@ git commit -m "<type>: <description>"
 git push -u origin HEAD
 ```
 
-### 12.4 创建 MR
+### 13.4 创建 MR
 
 使用 Skill 工具调用 `glab-mr` skill，合入 `{TARGET_BRANCH}`。
 
@@ -630,11 +677,11 @@ git push -u origin HEAD
 - ✅ 通过：push 成功 + MR 已创建
 - ❌ 阻塞：push 失败、MR 创建失败、或 check 不通过
 
-### 12.5 交付收尾（保持在 worktree，不自动退出）
+### 13.5 交付收尾（保持在 worktree，不自动退出）
 
 > 🚨 **禁止**：本 Stage 不再调用 `ExitWorktree`。流程结束后 session **默认保持在 worktree 中**，让开发者直接看到开发成果。
 
-**12.5.1 清理被动路标**
+**13.5.1 清理被动路标**
 
 RFC 已全流程完成，删除主仓库的路标文件（不再需要找回）：
 
@@ -644,7 +691,7 @@ rm -f {ORIG_CWD}/.rfc-active-worktree
 
 > 注意：不删除 `.gitignore` 中的 `.rfc-active-worktree` 条目——保留它，下次新 RFC 流程就不用重复追加。
 
-**12.5.2 输出交付摘要**
+**13.5.2 输出交付摘要**
 
 完成 MR 创建后，**必须**输出以下交付摘要（让开发者明确知道代码在哪、下一步看什么）：
 
@@ -687,6 +734,9 @@ RESEARCH ──→ WORKTREE ──→ RFC_GENERATION ──→ RFC_REVIEW ──
                                                 │
                                                 ▼
                                                FIX
+                                                │
+                                                ▼
+                                            TEST_DEPLOY   ← /sync-push test 测环境验证
                                                 │
                                                 ▼
                                             ARCHIVE
